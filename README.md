@@ -1,4 +1,4 @@
-# Gemini / Veo Watermark Remover
+# Gemini Watermark Remover
 
 Remove the visible **Gemini / Veo "spark" watermark** from a **16:9** video with
 no visible trace — preserving the scene (objects, texture, motion) and the audio.
