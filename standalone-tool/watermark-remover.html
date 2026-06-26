@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gemini / Veo Watermark Remover</title>
+<style>
+:root{--bg:#0b0d10;--panel:#14181d;--line:#232a31;--txt:#e6edf3;--mut:#8b97a3;--acc:#6ea8fe;--ok:#3fb950;--warn:#d29922;--err:#f85149}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--txt)}
+header{padding:16px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
+header h1{font-size:16px;margin:0;font-weight:600}.tag{font-size:11px;color:var(--mut);border:1px solid var(--line);padding:2px 8px;border-radius:20px}
+main{max-width:1140px;margin:0 auto;padding:22px;display:grid;gap:18px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+button{background:var(--acc);color:#06101f;border:0;padding:9px 16px;border-radius:8px;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--txt);border:1px solid var(--line)}button:disabled{opacity:.45;cursor:not-allowed}
+label.fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
+input[type=number]{width:84px;background:#0d1117;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:6px}
+input[type=range]{accent-color:var(--acc);width:180px}select{background:#0d1117;border:1px solid var(--line);color:var(--txt);border-radius:6px;padding:6px}
+.stage{position:relative;display:inline-block;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000;max-width:100%}
+.stage canvas{display:block;max-width:100%}
+#wmBox{position:absolute;border:1.5px dashed var(--acc);cursor:move;touch-action:none}
+#wmBox .hb{position:absolute;width:12px;height:12px;background:var(--acc);border-radius:3px;right:-6px;bottom:-6px;cursor:nwse-resize}
+#wmBox .lbl{position:absolute;top:-19px;left:0;font-size:10px;color:var(--acc);white-space:nowrap}
+.bar{height:8px;background:#0d1117;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--acc),var(--ok));transition:width .15s}
+.log{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--mut);white-space:pre-wrap;max-height:150px;overflow:auto}
+.hint{color:var(--mut);font-size:12px}a.dl{display:inline-block;background:var(--ok);color:#03110a;padding:9px 16px;border-radius:8px;font-weight:600;text-decoration:none}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:860px){.grid2{grid-template-columns:1fr}}
+video{max-width:100%;border-radius:10px;border:1px solid var(--line)}.pill{font-size:11px;padding:2px 8px;border-radius:20px;border:1px solid var(--line);color:var(--mut)}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.err{color:var(--err)}
+.sparkprev{image-rendering:pixelated;border:1px solid var(--line);border-radius:8px;background:#000}
+.kv{display:inline-flex;gap:6px;align-items:center;font-size:12px;color:var(--mut);margin-right:14px}.kv b{color:var(--txt)}
+</style></head><body>
+<header><h1>🪄 Gemini / Veo Watermark Remover</h1>
+<span class="tag">MP4Box · WebCodecs · mp4-muxer</span><span class="tag" id="envtag">checking…</span>
+<span class="tag">inverse alpha-compositing</span></header>
+<main>
+  <section class="panel"><div class="row">
+    <input type="file" id="file" accept="video/mp4,video/*"/>
+    <span class="hint">Import a Gemini/Veo MP4. Runs 100% locally — nothing is uploaded. It auto-finds the spark.</span>
+  </div>
+  <div style="margin-top:12px;display:none" id="analyzeWrap">
+    <div class="hint" id="analyzeMsg">Analyzing…</div><div class="bar" style="margin-top:6px"><i id="analyzeProg"></i></div>
+  </div></section>
+
+  <section class="panel" id="detPanel" style="display:none">
+    <div class="row" style="justify-content:space-between"><strong>1 · Detected watermark</strong><span class="pill" id="vidinfo"></span></div>
+    <div class="grid2" style="grid-template-columns:auto 340px;align-items:start;margin-top:6px">
+      <div class="stage" id="stage"><canvas id="frame"></canvas>
+        <div id="wmBox"><span class="lbl">spark</span><span class="hb"></span></div></div>
+      <div style="display:grid;gap:12px">
+        <div>
+          <div class="hint" style="margin-bottom:6px">Detected spot — cleaned preview:</div>
+          <canvas id="spark" class="sparkprev" width="160" height="160"></canvas>
+          <div id="detstats" style="margin-top:8px"></div>
+        </div>
+        <label class="fld">Opacity / strength (α) <input type="range" id="strength" min="0.05" max="0.6" step="0.01" value="0.3"/></label>
+        <label class="fld">Edge cleanup <input type="range" id="cleanup" min="0" max="1" step="0.05" value="0.4"/></label>
+        <label class="fld">Mask threshold (soft→hard) <input type="range" id="thresh" min="0" max="0.5" step="0.01" value="0.05"/></label>
+        <div class="row">
+          <label class="fld">X <input type="number" id="nx"/></label>
+          <label class="fld">Y <input type="number" id="ny"/></label>
+          <label class="fld">Size <input type="number" id="nsz"/></label>
+        </div>
+        <div class="row">
+          <button class="ghost" id="redetect">Re-detect</button>
+          <button class="ghost" id="prev">Preview cleaned frame</button>
+        </div>
+        <span class="hint">Auto-detected. Nudge the box only if needed; α is calibrated from your video.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="runPanel" style="display:none">
+    <div class="row" style="justify-content:space-between"><strong>2 · Remove &amp; export</strong><span class="pill" id="codecinfo"></span></div>
+    <div class="row"><button id="go">Remove watermark &amp; export MP4</button>
+      <label class="fld">Quality <select id="quality"><option value="0.12">Standard</option><option value="0.2" selected>High</option><option value="0.32">Very high</option></select></label>
+      <span id="status" class="hint"></span></div>
+    <div style="margin-top:12px" class="bar"><i id="prog"></i></div>
+    <div class="log" id="log" style="margin-top:12px"></div>
+    <div class="row" id="result" style="margin-top:12px"></div>
+  </section>
+</main>
+
+<script src="mp4box.all.min.js"></script>
+<script src="mp4-muxer.min.js"></script>
+<script>
+const MASK_URI="data:image/png;base64,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";
+const $=s=>document.querySelector(s);
+const log=(m,c)=>{const e=$("#log");e.innerHTML+=`<div class="${c||''}">${m}</div>`;e.scrollTop=e.scrollHeight;};
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const setBar=(id,p)=>$(id).style.width=(clamp(p,0,1)*100).toFixed(1)+"%";
+
+(function(){const ok=!!(window.VideoDecoder&&window.VideoEncoder&&window.MP4Box!==undefined&&window.Mp4Muxer);
+ const t=$("#envtag");if(ok){t.textContent="WebCodecs ready";t.classList.add("ok");}else{t.textContent="Use Chrome/Edge";t.classList.add("err");}})();
+
+/* ---------- mask template ---------- */
+const maskImg=new Image(); let maskMax=128;
+const maskCache={};
+maskImg.onload=()=>{const c=new OffscreenCanvas(48,48).getContext("2d");c.drawImage(maskImg,0,0);
+  const d=c.getImageData(0,0,48,48).data;let mx=1;for(let i=0;i<d.length;i+=4)mx=Math.max(mx,d[i]);maskMax=mx;};
+maskImg.src=MASK_URI;
+// normalized alpha-shape (0..1) resampled to sz, threshold lifts soft pixels toward 0
+function maskNormAt(sz,thresh=0){
+  const key=sz+"|"+thresh; if(maskCache[key])return maskCache[key];
+  const c=new OffscreenCanvas(sz,sz).getContext("2d");c.imageSmoothingEnabled=true;c.drawImage(maskImg,0,0,sz,sz);
+  const d=c.getImageData(0,0,sz,sz).data; const a=new Float32Array(sz*sz);
+  for(let i=0,p=0;i<a.length;i++,p+=4){let v=d[p]/maskMax; v=v<=thresh?0:(v-thresh)/(1-thresh); a[i]=clamp(v,0,1);}
+  maskCache[key]=a; return a;
+}
+
+/* ---------- state ---------- */
+let srcBuffer=null,vW=0,vH=0,fps=30,dispScale=1;
+let det={cx:0,cy:0,sz:48,strength:0.30};
+
+/* ---------- helpers: blur/highpass via integral image ---------- */
+function highpass(src,W,H,r){
+  const I=new Float64Array((W+1)*(H+1));
+  for(let y=0;y<H;y++){let row=0;for(let x=0;x<W;x++){row+=src[y*W+x];I[(y+1)*(W+1)+(x+1)]=I[y*(W+1)+(x+1)]+row;}}
+  const out=new Float32Array(W*H);
+  for(let y=0;y<H;y++){const y0=Math.max(0,y-r),y1=Math.min(H,y+r+1);
+    for(let x=0;x<W;x++){const x0=Math.max(0,x-r),x1=Math.min(W,x+r+1);
+      const s=I[y1*(W+1)+x1]-I[y0*(W+1)+x1]-I[y1*(W+1)+x0]+I[y0*(W+1)+x0];
+      out[y*W+x]=src[y*W+x]-s/((y1-y0)*(x1-x0));}}
+  return out;
+}
+function zeroMeanUnit(a){let m=0;for(let i=0;i<a.length;i++)m+=a[i];m/=a.length;
+  const o=new Float32Array(a.length);let n=0;for(let i=0;i<a.length;i++){o[i]=a[i]-m;n+=o[i]*o[i];}
+  n=Math.sqrt(n)||1;for(let i=0;i<o.length;i++)o[i]/=n;return o;}
+function nccWin(src,W,x0,y0,sz,tmpl){ // tmpl zero-mean-unit, sz x sz
+  let s=0,ss=0;const N=sz*sz;
+  for(let y=0;y<sz;y++){const b=(y0+y)*W+x0;for(let x=0;x<sz;x++){const v=src[b+x];s+=v;ss+=v*v;}}
+  const mean=s/N;let nrm=Math.sqrt(ss-mean*mean*N);if(nrm<1e-3)return 0;
+  let c=0;for(let y=0;y<sz;y++){const b=(y0+y)*W+x0,tb=y*sz;for(let x=0;x<sz;x++)c+=(src[b+x]-mean)*tmpl[tb+x];}
+  return c/nrm;
+}
+
+/* ---------- detection on the temporal-min buffer ---------- */
+function patchAt(lum,W,cx,cy,sz){const o=new Float32Array(sz*sz),h=sz>>1,x0=cx-h,y0=cy-h;
+  for(let y=0;y<sz;y++)for(let x=0;x<sz;x++)o[y*sz+x]=lum[(y0+y)*W+(x0+x)];return o;}
+function patchBlur(p,sz,r){const t=new Float32Array(sz*sz),o=new Float32Array(sz*sz);
+  for(let y=0;y<sz;y++){let s=0;for(let x=0;x<Math.min(r,sz);x++)s+=p[y*sz+x];
+   for(let x=0;x<sz;x++){const add=x+r<sz?p[y*sz+x+r]:0,sub=x-r-1>=0?p[y*sz+x-r-1]:0;if(x>0)s+=add-sub;
+    const x0=Math.max(0,x-r),x1=Math.min(sz-1,x+r);t[y*sz+x]=s/(x1-x0+1);}}
+  for(let x=0;x<sz;x++){let s=0;for(let y=0;y<Math.min(r,sz);y++)s+=t[y*sz+x];
+   for(let y=0;y<sz;y++){const add=y+r<sz?t[(y+r)*sz+x]:0,sub=y-r-1>=0?t[(y-r-1)*sz+x]:0;if(y>0)s+=add-sub;
+    const y0=Math.max(0,y-r),y1=Math.min(sz-1,y+r);o[y*sz+x]=s/(y1-y0+1);}}
+  return o;}
+function residScore(lum,W,H,cx,cy,sz,k){const h=sz>>1,x0=cx-h,y0=cy-h;
+  if(x0<0||y0<0||x0+sz>W||y0+sz>H)return -1;
+  const a=maskNormAt(sz),r=Math.max(2,sz>>3),p=patchAt(lum,W,cx,cy,sz),pb=patchBlur(p,sz,r);
+  const rem=new Float32Array(sz*sz);for(let i=0;i<sz*sz;i++){const al=k*a[i];rem[i]=clamp((p[i]-al*255)/(1-al),0,255);}
+  const rb=patchBlur(rem,sz,r);let e0=0,e1=0,n=0;
+  for(let i=0;i<sz*sz;i++){if(a[i]>0.05){e0+=Math.abs(p[i]-pb[i]);e1+=Math.abs(rem[i]-rb[i]);n++;}}
+  return n?(e0-e1)/n:-1;}
+// removal-residual detector: locate where inverse-compositing the star FLATTENS the image.
+// Operates on the temporal MEAN, so it works on static AND moving backgrounds; multi-resolution.
+function detect(meanRGBA,W,H){
+  const lum=new Float32Array(W*H);for(let i=0,p=0;i<W*H;i++,p+=4)lum[i]=(meanRGBA[p]+meanRGBA[p+1]+meanRGBA[p+2])/3;
+  const exp=0.0667*H;                                    // watermark size scales ~ with height (48@720p, 72@1080p, 144@4K)
+  const rx0=Math.floor(W*0.58),ry0=Math.floor(H*0.56);  // Veo stamps far bottom-right
+  const sizes=[Math.round(exp*0.8),Math.round(exp),Math.round(exp*1.2)];
+  const cstep=Math.max(3,Math.round(exp/12));
+  let best={s:-1,cx:Math.round(W*0.88),cy:Math.round(H*0.85),sz:Math.round(exp)};
+  for(const sz of sizes){const h=sz>>1;for(let cy=ry0+h;cy<H-h;cy+=cstep)for(let cx=rx0+h;cx<W-h;cx+=cstep){
+    const s=residScore(lum,W,H,cx,cy,sz,0.30);if(s>best.s)best={s,cx,cy,sz};}}
+  let ref={s:best.s,cx:best.cx,cy:best.cy,sz:best.sz};
+  for(let sz=Math.round(exp*0.72);sz<=Math.round(exp*1.3);sz+=2)for(let dy=-cstep;dy<=cstep;dy++)for(let dx=-cstep;dx<=cstep;dx++){
+    const s=residScore(lum,W,H,best.cx+dx,best.cy+dy,sz,0.30);if(s>ref.s)ref={s,cx:best.cx+dx,cy:best.cy+dy,sz};}
+  return {cx:ref.cx,cy:ref.cy,sz:ref.sz,strength:0.30,score:ref.s};
+}
+function calibrateK(lum,W,cx,cy,sz){
+  const mn=maskNormAt(sz),h=sz>>1,x0=cx-h,y0=cy-h;
+  const tmpl=zeroMeanUnit(mn);let prev=null,kz=0.30;
+  for(let k=0.12;k<=0.55;k+=0.02){
+    const rem=new Float32Array(sz*sz);
+    for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){const i=y*sz+x;const a=k*mn[i];
+      const px=lum[(y0+y)*W+(x0+x)];rem[i]=clamp((px-a*255)/(1-a),0,255);}
+    // residual ncc with the star shape (positive=under-subtract, neg=over)
+    const hp=highpassSmall(rem,sz,Math.max(2,sz>>3));
+    let c=0;for(let i=0;i<sz*sz;i++)c+=hp[i]*tmpl[i];
+    let nn=0;for(let i=0;i<sz*sz;i++)nn+=hp[i]*hp[i];nn=Math.sqrt(nn)||1;const ncc=c/nn;
+    if(prev&&prev.ncc>0&&ncc<=0){kz=prev.k+(0-prev.ncc)*(k-prev.k)/(ncc-prev.ncc);break;}
+    prev={k,ncc};
+  }
+  return clamp(kz,0.08,0.55);
+}
+function highpassSmall(a,sz,r){const o=new Float32Array(sz*sz);
+  for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){let s=0,n=0;
+    for(let yy=-r;yy<=r;yy++){const Y=y+yy;if(Y<0||Y>=sz)continue;for(let xx=-r;xx<=r;xx++){const X=x+xx;if(X<0||X>=sz)continue;s+=a[Y*sz+X];n++;}}
+    o[y*sz+x]=a[y*sz+x]-s/n;}return o;}
+
+/* ---------- core removal: inverse alpha compositing ---------- */
+function alphaMap(){return maskNormAt(det.sz,+$("#thresh").value);}
+function removeRegion(data,strideW,bx,by,sz,alpha,strength,cleanup){
+  const W=255;
+  // 1) inverse composite
+  for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){const a=strength*alpha[y*sz+x];if(a<=0)continue;
+    const gi=((by+y)*strideW+(bx+x))*4;
+    data[gi]  =clamp((data[gi]  -a*W)/(1-a),0,255);
+    data[gi+1]=clamp((data[gi+1]-a*W)/(1-a),0,255);
+    data[gi+2]=clamp((data[gi+2]-a*W)/(1-a),0,255);}
+  // 2) optional alpha-weighted 3x3 median to kill leftover edge speckle
+  if(cleanup>0){
+    const src=new Uint8ClampedArray(sz*sz*3);
+    for(let y=0;y<sz;y++)for(let x=0;x<sz;x++){const gi=((by+y)*strideW+(bx+x))*4,o=(y*sz+x)*3;src[o]=data[gi];src[o+1]=data[gi+1];src[o+2]=data[gi+2];}
+    const med=v=>v.sort((p,q)=>p-q)[4];
+    for(let y=1;y<sz-1;y++)for(let x=1;x<sz-1;x++){const an=alpha[y*sz+x];if(an<=0)continue;
+      const w=Math.pow(an,1.5)*cleanup;if(w<=0)continue;const gi=((by+y)*strideW+(bx+x))*4;
+      for(let c=0;c<3;c++){const nb=[];for(let yy=-1;yy<=1;yy++)for(let xx=-1;xx<=1;xx++)nb.push(src[((y+yy)*sz+(x+xx))*3+c]);
+        data[gi+c]=Math.round(src[(y*sz+x)*3+c]*(1-w)+med(nb)*w);}}
+  }
+}
+
+/* ---------- file load → probe → analyze ---------- */
+$("#file").addEventListener("change",async e=>{
+  const f=e.target.files[0];if(!f)return;srcBuffer=await f.arrayBuffer();
+  $("#detPanel").style.display="none";$("#runPanel").style.display="none";$("#log").innerHTML="";$("#result").innerHTML="";
+  log("Loaded "+f.name+" ("+(f.size/1048576).toFixed(1)+" MB)");
+  const info=await probe(srcBuffer);vW=info.width;vH=info.height;fps=info.fps||30;
+  $("#vidinfo").textContent=`${vW}×${vH} · ${fps.toFixed(1)}fps · ${info.codec}`;
+  $("#codecinfo").textContent=`video ${info.codec}${info.audio?" · audio "+info.audio.codec:" · no audio"}`;
+  const cv=$("#frame");dispScale=Math.min(1,760/vW);cv.width=vW;cv.height=vH;cv.style.width=(vW*dispScale)+"px";
+  const ctx=cv.getContext("2d");if(info.firstFrame){ctx.drawImage(info.firstFrame,0,0);info.firstFrame.close&&info.firstFrame.close();}
+  // auto-detect
+  $("#analyzeWrap").style.display="";$("#analyzeMsg").textContent="Analyzing frames to isolate the watermark…";
+  const buf=await buildTemporalMin(srcBuffer);
+  $("#analyzeMsg").textContent="Locating the watermark…";await new Promise(r=>setTimeout(r,30));
+  det=detect(buf.mean.data,vW,vH);
+  $("#analyzeWrap").style.display="none";$("#detPanel").style.display="";$("#runPanel").style.display="";
+  showDetection(buf);
+});
+
+function showDetection(buf){
+  syncBox();
+  // #spark shows the detected region (from first frame) WITH removal applied — instant proof it's gone
+  const sc=$("#spark").getContext("2d");sc.imageSmoothingEnabled=false;sc.clearRect(0,0,160,160);
+  const pad=Math.round(det.sz*0.5),s=det.sz+pad*2;
+  const x0=clamp(det.cx-(s>>1),0,vW-s),y0=clamp(det.cy-(s>>1),0,vH-s);
+  const reg=$("#frame").getContext("2d").getImageData(x0,y0,s,s);
+  removeRegion(reg.data,s,det.cx-(det.sz>>1)-x0,det.cy-(det.sz>>1)-y0,det.sz,alphaMap(),det.strength,+$("#cleanup").value);
+  const oc=new OffscreenCanvas(s,s);oc.getContext("2d").putImageData(reg,0,0);sc.drawImage(oc,0,0,s,s,0,0,160,160);
+  const conf=det.score>6?"<span class='ok'>strong</span>":det.score>3?"<span class='warn'>moderate</span>":"<span class='err'>weak — drag the box onto the spark</span>";
+  $("#detstats").innerHTML=`<span class="kv">center <b>${det.cx},${det.cy}</b></span><span class="kv">size <b>${det.sz}px</b></span>`+
+    `<span class="kv">α <b>${det.strength.toFixed(2)}</b></span><span class="kv">match <b>${conf}</b></span>`;
+  $("#strength").value=det.strength.toFixed(2);
+}
+function syncBox(){const b=$("#wmBox"),h=det.sz>>1;
+  b.style.left=((det.cx-h)*dispScale)+"px";b.style.top=((det.cy-h)*dispScale)+"px";
+  b.style.width=(det.sz*dispScale)+"px";b.style.height=(det.sz*dispScale)+"px";
+  $("#nx").value=det.cx-h;$("#ny").value=det.cy-h;$("#nsz").value=det.sz;}
+["nx","ny","nsz"].forEach(id=>$("#"+id).addEventListener("input",()=>{
+  const sz=+$("#nsz").value;det.sz=sz;det.cx=+$("#nx").value+(sz>>1);det.cy=+$("#ny").value+(sz>>1);syncBox();}));
+$("#strength").addEventListener("input",()=>det.strength=+$("#strength").value);
+
+/* drag + resize */
+(function(){let mode=null,sx,sy,ox,oy,os;const pt=e=>({x:e.touches?e.touches[0].clientX:e.clientX,y:e.touches?e.touches[0].clientY:e.clientY});
+ const down=e=>{mode=e.target.classList.contains("hb")?"resize":"move";const p=pt(e);sx=p.x;sy=p.y;ox=det.cx;oy=det.cy;os=det.sz;e.preventDefault();};
+ const move=e=>{if(!mode)return;const p=pt(e),dx=(p.x-sx)/dispScale,dy=(p.y-sy)/dispScale;
+   if(mode==="move"){det.cx=Math.round(ox+dx);det.cy=Math.round(oy+dy);}else{det.sz=Math.max(8,Math.round(os+dx));}syncBox();e.preventDefault();};
+ const up=()=>mode=null;const b=$("#wmBox");
+ b.addEventListener("mousedown",down);window.addEventListener("mousemove",move);window.addEventListener("mouseup",up);
+ b.addEventListener("touchstart",down,{passive:false});window.addEventListener("touchmove",move,{passive:false});window.addEventListener("touchend",up);})();
+
+$("#redetect").onclick=async()=>{$("#analyzeWrap").style.display="";$("#analyzeMsg").textContent="Re-analyzing…";
+  const buf=await buildTemporalMin(srcBuffer);det=detect(buf.mean.data,vW,vH);$("#analyzeWrap").style.display="none";showDetection(buf);};
+$("#prev").onclick=()=>{const cv=$("#frame"),ctx=cv.getContext("2d");const img=ctx.getImageData(0,0,vW,vH);
+  const h=det.sz>>1,x0=clamp(det.cx-h,0,vW-det.sz),y0=clamp(det.cy-h,0,vH-det.sz);
+  removeRegion(img.data,vW,x0,y0,det.sz,alphaMap(),det.strength,+$("#cleanup").value);ctx.putImageData(img,0,0);
+  log("Previewed cleaned frame (Re-detect or re-import to reset).","ok");};
+
+/* ---------- avcC/audio descriptors ---------- */
+function makeDesc(mp4,id){const t=mp4.getTrackById(id);for(const e of t.mdia.minf.stbl.stsd.entries){const b=e.avcC||e.hvcC||e.vpcC||e.av1C;if(b){const s=new DataStream(undefined,0,DataStream.BIG_ENDIAN);b.write(s);return new Uint8Array(s.buffer,8);}}return undefined;}
+function makeAudioDesc(mp4,id){const t=mp4.getTrackById(id);for(const e of t.mdia.minf.stbl.stsd.entries){if(e.esds&&e.esds.esd){try{const d=e.esds.esd.descs[0].descs[0];if(d&&d.data)return new Uint8Array(d.data);}catch(_){}}}return undefined;}
+
+/* ---------- probe: first frame + metadata ---------- */
+function probe(buffer){return new Promise((resolve,reject)=>{const mp4=MP4Box.createFile();let resolved=false,meta=null,dec=null;
+  mp4.onError=e=>reject(new Error("mp4box: "+e));
+  mp4.onReady=info=>{const vt=info.videoTracks[0];if(!vt)return reject(new Error("No video track"));const at=info.audioTracks[0];
+    const dur=info.duration/info.timescale;meta={width:vt.track_width,height:vt.track_height,codec:vt.codec,
+      fps:vt.nb_samples/((vt.movie_duration/vt.movie_timescale)||dur),audio:at?{codec:at.codec}:null};
+    const desc=makeDesc(mp4,vt.id);dec=new VideoDecoder({output:f=>{if(!resolved){resolved=true;meta.firstFrame=f;mp4.stop();resolve(meta);}else f.close();},error:reject});
+    dec.configure({codec:vt.codec,codedWidth:vt.track_width,codedHeight:vt.track_height,description:desc});
+    mp4.setExtractionOptions(vt.id,null,{nbSamples:48});mp4.start();};
+  let started=false;mp4.onSamples=(id,u,samples)=>{if(started)return;started=true;
+    for(const s of samples)dec.decode(new EncodedVideoChunk({type:s.is_sync?"key":"delta",timestamp:s.cts*1e6/s.timescale,duration:s.duration*1e6/s.timescale,data:s.data}));
+    dec.flush().catch(()=>{});};
+  buffer.fileStart=0;mp4.appendBuffer(buffer);mp4.flush();});}
+
+/* ---------- temporal min over sampled frames (isolates the static watermark) ---------- */
+function buildTemporalMin(buffer){return new Promise((resolve,reject)=>{const mp4=MP4Box.createFile();
+  let dec,W,H,total,everyN,outIdx=0,fed=0,finalized=false,minD=null,meanD=null,kept=0;
+  const oc=new OffscreenCanvas(1,1),ctx=oc.getContext("2d",{willReadFrequently:true});
+  mp4.onError=e=>reject(new Error("mp4box: "+e));
+  mp4.onReady=info=>{const vt=info.videoTracks[0];W=vt.track_width;H=vt.track_height;total=vt.nb_samples;
+    everyN=Math.max(1,Math.floor(total/120));oc.width=W;oc.height=H;
+    minD=new Uint8ClampedArray(W*H*4);minD.fill(255);meanD=new Float32Array(W*H*3);
+    const desc=makeDesc(mp4,vt.id);
+    dec=new VideoDecoder({output:f=>{
+      if(outIdx%everyN===0){ctx.drawImage(f,0,0);const d=ctx.getImageData(0,0,W,H).data;
+        for(let i=0,m=0;i<minD.length;i+=4,m+=3){if(d[i]<minD[i])minD[i]=d[i];if(d[i+1]<minD[i+1])minD[i+1]=d[i+1];if(d[i+2]<minD[i+2])minD[i+2]=d[i+2];
+          meanD[m]+=d[i];meanD[m+1]+=d[i+1];meanD[m+2]+=d[i+2];}kept++;}
+      f.close();outIdx++;setBar("#analyzeProg",outIdx/total*0.95);},error:reject});
+    dec.configure({codec:vt.codec,codedWidth:W,codedHeight:H,description:desc});
+    mp4.setExtractionOptions(vt.id,"v",{nbSamples:Infinity});mp4.start();};
+  mp4.onSamples=(id,u,samples)=>{for(const s of samples){dec.decode(new EncodedVideoChunk({type:s.is_sync?"key":"delta",timestamp:s.cts*1e6/s.timescale,duration:s.duration*1e6/s.timescale,data:s.data}));fed++;}};
+  const watch=setInterval(async()=>{if(finalized)return;if(total>0&&fed>=total){finalized=true;clearInterval(watch);await dec.flush();setBar("#analyzeProg",1);
+    const meanRGBA=new Uint8ClampedArray(W*H*4);for(let i=0,m=0;i<meanRGBA.length;i+=4,m+=3){meanRGBA[i]=meanD[m]/kept;meanRGBA[i+1]=meanD[m+1]/kept;meanRGBA[i+2]=meanD[m+2]/kept;meanRGBA[i+3]=255;}
+    resolve({min:new ImageData(minD,W,H),mean:new ImageData(meanRGBA,W,H)});}},100);
+  buffer.fileStart=0;mp4.appendBuffer(buffer);mp4.flush();});}
+
+/* ---------- full process: remove + encode + mux ---------- */
+$("#go").onclick=async()=>{$("#go").disabled=true;$("#result").innerHTML="";setBar("#prog",0);
+  try{await process(srcBuffer);}catch(err){log("ERROR: "+(err.message||err),"err");console.error(err);}$("#go").disabled=false;};
+
+function process(buffer){return new Promise((resolve,reject)=>{const mp4=MP4Box.createFile();
+  let muxer,encoder,decoder,vT,aT,total=0,done=0,vFed=0,finalized=false,frameIdx=0;
+  const audioSamples=[];let audioCfg=null;const qf=+$("#quality").value;
+  const sz=det.sz,h=sz>>1,bx=clamp(det.cx-h,0,vW-sz),by=clamp(det.cy-h,0,vH-sz);
+  const alpha=alphaMap(),strength=det.strength,cleanup=+$("#cleanup").value;
+  const pc=new OffscreenCanvas(1,1),pctx=pc.getContext("2d",{willReadFrequently:true});
+  mp4.onError=e=>reject(new Error("mp4box: "+e));
+  mp4.onReady=async info=>{vT=info.videoTracks[0];aT=info.audioTracks[0];const W=vT.track_width,Hh=vT.track_height;total=vT.nb_samples;
+    pc.width=W;pc.height=Hh;const bitrate=Math.round(W*Hh*(fps||30)*qf);
+    let enc=vT.codec;const sup=async c=>{try{return (await VideoEncoder.isConfigSupported({codec:c,width:W,height:Hh,bitrate})).supported;}catch(_){return false;}};
+    if(!await sup(enc)){for(const c of ["avc1.640028","avc1.4d0028","avc1.42e01e"]){if(await sup(c)){enc=c;break;}}}
+    log("Encoding as "+enc+" @ "+(bitrate/1e6).toFixed(1)+" Mbps");
+    muxer=new Mp4Muxer.Muxer({target:new Mp4Muxer.ArrayBufferTarget(),
+      video:{codec:enc.startsWith("hev")||enc.startsWith("hvc")?"hevc":enc.startsWith("av01")?"av1":"avc",width:W,height:Hh},
+      audio:aT?{codec:aT.codec.startsWith("mp4a")?"aac":aT.codec.startsWith("opus")?"opus":"aac",numberOfChannels:aT.audio.channel_count,sampleRate:aT.audio.sample_rate}:undefined,
+      fastStart:"in-memory"});
+    let vMeta=null,loggedMeta=false;
+    encoder=new VideoEncoder({output:(ch,m)=>{
+      if(!loggedMeta){loggedMeta=true;log("first chunk meta: decoderConfig="+(!!(m&&m.decoderConfig))+" description="+(!!(m&&m.decoderConfig&&m.decoderConfig.description)),(m&&m.decoderConfig)?"ok":"warn");}
+      if(m&&m.decoderConfig)vMeta=m;muxer.addVideoChunk(ch,vMeta||m);},error:reject});
+    // force avcC (length-prefixed) output so WebCodecs emits decoderConfig.description that mp4-muxer needs
+    const ecfg={codec:enc,width:W,height:Hh,bitrate,framerate:fps||30};
+    if(enc.startsWith("avc"))ecfg.avc={format:"avc"};else if(enc.startsWith("hev")||enc.startsWith("hvc"))ecfg.hevc={format:"hevc"};
+    encoder.configure(ecfg);
+    decoder=new VideoDecoder({output:f=>{try{pctx.drawImage(f,0,0);
+      const img=pctx.getImageData(bx,by,sz,sz);removeRegion(img.data,sz,0,0,sz,alpha,strength,cleanup);pctx.putImageData(img,bx,by);
+      const nf=new VideoFrame(pc,{timestamp:f.timestamp,duration:f.duration||(1e6/(fps||30))});
+      encoder.encode(nf,{keyFrame:(frameIdx%Math.max(1,Math.round((fps||30)*2)))===0});nf.close();f.close();frameIdx++;done++;
+      setBar("#prog",done/total*0.95);if(done%15===0)$("#status").textContent=`frame ${done}/${total}`;}catch(e){reject(e);}},error:reject});
+    decoder.configure({codec:vT.codec,codedWidth:W,codedHeight:Hh,description:makeDesc(mp4,vT.id)});
+    if(aT){audioCfg=makeAudioDesc(mp4,aT.id);mp4.setExtractionOptions(aT.id,"audio",{nbSamples:Infinity});}
+    mp4.setExtractionOptions(vT.id,"video",{nbSamples:Infinity});mp4.start();};
+  mp4.onSamples=(id,u,samples)=>{if(u==="video"){for(const s of samples){decoder.decode(new EncodedVideoChunk({type:s.is_sync?"key":"delta",timestamp:s.cts*1e6/s.timescale,duration:s.duration*1e6/s.timescale,data:s.data}));vFed++;}$("#status").textContent=`queued ${vFed}/${total}`;}else if(u==="audio"){for(const s of samples)audioSamples.push(s);}};
+  async function finalize(){if(finalized)return;finalized=true;$("#status").textContent="flushing…";await decoder.flush();await encoder.flush();
+    if(!vMeta){throw new Error("encoder never emitted a decoderConfig/avcC description — cannot mux. (codec="+enc+")");}
+    if(aT&&audioCfg){try{for(const s of audioSamples)muxer.addAudioChunk(new EncodedAudioChunk({type:s.is_sync?"key":"delta",timestamp:s.cts*1e6/s.timescale,duration:s.duration*1e6/s.timescale,data:s.data}),{decoderConfig:{codec:aT.codec.startsWith("mp4a")?"mp4a.40.2":aT.codec,sampleRate:aT.audio.sample_rate,numberOfChannels:aT.audio.channel_count,description:audioCfg}});log("Audio passed through ("+audioSamples.length+" samples)","ok");}catch(e){log("Audio passthrough failed → video-only: "+e.message,"warn");}}
+    muxer.finalize();const blob=new Blob([muxer.target.buffer],{type:"video/mp4"}),url=URL.createObjectURL(blob),origUrl=URL.createObjectURL(new Blob([srcBuffer],{type:"video/mp4"}));
+    setBar("#prog",1);$("#status").textContent="done — verify below";
+    $("#result").innerHTML=`<div style="width:100%"><div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <strong class="ok">✅ Watermark removed — verify before we build the skill</strong>
+      <a class="dl" href="${url}" download="cleaned.mp4">⬇ Download cleaned.mp4</a></div>
+      <div class="grid2"><div><div class="hint" style="margin-bottom:6px">CLEANED</div><video src="${url}" controls autoplay loop muted playsinline style="width:100%"></video></div>
+      <div><div class="hint" style="margin-bottom:6px">ORIGINAL</div><video src="${origUrl}" controls loop muted playsinline style="width:100%"></video></div></div>
+      <p class="hint" style="margin-top:8px">Both loop muted. Watch the spark location. Happy? Tell me and I'll wrap this into a skill.</p></div>`;
+    log("Export complete — "+(blob.size/1048576).toFixed(1)+" MB","ok");$("#result").scrollIntoView({behavior:"smooth",block:"center"});resolve();}
+  const watch=setInterval(()=>{if(finalized){clearInterval(watch);return;}if(total>0&&vFed>=total){clearInterval(watch);finalize().catch(reject);}},120);
+  buffer.fileStart=0;mp4.appendBuffer(buffer);mp4.flush();});}
+</script></body></html>
