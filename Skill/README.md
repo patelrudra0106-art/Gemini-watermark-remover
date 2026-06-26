@@ -70,7 +70,6 @@ across all frames, including the ends.
 Gemini Watermark Remover Skill/
 ├── SKILL.md                     # skill definition (frontmatter + agent instructions)
 ├── README.md                    # this file
-├── requirements.txt             # python deps
 ├── assets/gemini_watermark.png  # 48×48 spark template (alpha shape)
 ├── scripts/
 │   ├── remove_watermark.py      # the engine (detect + lama/composite + mux)
