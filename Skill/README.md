@@ -4,7 +4,7 @@ Remove the visible Gemini "spark" watermark from a 16:9 video with **no visible
 trace** — scene and audio preserved. Built and verified on real Veo clips
 (1280×720 and 1920×1080).
 
-![before / after](Examples/before_after_example.png)
+![before / after](Example/before_after_example.png)
 
 ## Quickstart
 ```bash
